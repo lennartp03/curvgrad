@@ -7,3 +7,6 @@ __pycache__/
 *.egg-info/
 dist/
 build/
+.DS_Store
+# private working notes
+LEARNING_NOTES.md
