@@ -126,3 +126,23 @@ class Tensor:
 
     def softmax(self):
         return ops.softmax(self)
+
+    def exp(self):
+        return ops.exp(self)
+
+    def log(self):
+        return ops.log(self)
+
+    def log_softmax(self):
+        return ops.log_softmax(self)
+
+    def abs(self):
+        return ops.abs_(self)
+
+    def __pow__(self, other):
+        return ops.pow_(self, other)
+
+    @property
+    def T(self):
+        return ops.transpose(self)
+    

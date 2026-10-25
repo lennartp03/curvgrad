@@ -62,28 +62,40 @@ def add(a: Tensor, b: Tensor) -> Tensor:
     def vjp(g: np.ndarray):
         return (g, g)
 
-    return _make(a.data + b.data, (a, b), vjp, "add")
+    def jvp(da: np.ndarray, db: np.ndarray) -> np.ndarray:
+        return da + db
+
+    return _make(a.data + b.data, (a, b), vjp, "add", jvp)
 
 
 def sub(a: Tensor, b: Tensor) -> Tensor:
     def vjp(g: np.ndarray):
         return (g, -g)
 
-    return _make(a.data - b.data, (a, b), vjp, "sub")
+    def jvp(da: np.ndarray, db: np.ndarray) -> np.ndarray:
+        return da - db
+
+    return _make(a.data - b.data, (a, b), vjp, "sub", jvp)
 
 
 def mul(a: Tensor, b: Tensor) -> Tensor:
     def vjp(g: np.ndarray):
         return (b.data * g, a.data * g)
 
-    return _make(a.data * b.data, (a, b), vjp, "mul")
+    def jvp(da: np.ndarray, db: np.ndarray) -> np.ndarray:
+        return da * b.data + a.data * db
+
+    return _make(a.data * b.data, (a, b), vjp, "mul", jvp)
 
 
 def div(a: Tensor, b: Tensor) -> Tensor:
     def vjp(g: np.ndarray):
         return (g / b.data, -g * a.data / b.data**2)
 
-    return _make(a.data / b.data, (a, b), vjp, "div")
+    def jvp(da: np.ndarray, db: np.ndarray) -> np.ndarray:
+        return da / b.data - a.data / db**2
+
+    return _make(a.data / b.data, (a, b), vjp, "div", jvp)
 
 
 def matmul(a: Tensor, b: Tensor) -> Tensor:
@@ -91,14 +103,20 @@ def matmul(a: Tensor, b: Tensor) -> Tensor:
     def vjp(g: np.ndarray):
         return (g @ b.data.T, a.data.T @ g)
 
-    return _make(a.data @ b.data, (a, b), vjp, "matmul")
+    def jvp(da: np.ndarray, db: np.ndarray) -> np.ndarray:
+        return da @ b.data + a.data @ db
+
+    return _make(a.data @ b.data, (a, b), vjp, "matmul", jvp)
 
 
 def sum_(a: Tensor, axis=None) -> Tensor:
     def vjp(g: np.ndarray):
         return (_restore_axes(g, a.data.shape, axis),)
 
-    return _make(np.sum(a.data, axis=axis), (a,), vjp, "sum")
+    def jvp(da: np.ndarray) -> np.ndarray:
+        ...
+
+    return _make(np.sum(a.data, axis=axis), (a,), vjp, "sum", jvp)
 
 
 def mean_(a: Tensor, axis=None) -> Tensor:
@@ -108,28 +126,40 @@ def mean_(a: Tensor, axis=None) -> Tensor:
     def vjp(g: np.ndarray):
         return (_restore_axes(g, a.data.shape, axis) / n,)
 
-    return _make(out_data, (a,), vjp, "mean")
+    def jvp(da: np.ndarray) -> np.ndarray:
+        ...
+
+    return _make(out_data, (a,), vjp, "mean", jvp)
 
 
 def reshape(a: Tensor, shape: tuple[int, ...]) -> Tensor:
     def vjp(g: np.ndarray):
         return (g.reshape(a.data.shape),)
 
-    return _make(a.data.reshape(shape), (a,), vjp, "reshape")
+    def jvp(da: np.ndarray) -> np.ndarray:
+            ...
+
+    return _make(a.data.reshape(shape), (a,), vjp, "reshape", jvp)
 
 
 def neg(a: Tensor) -> Tensor:
     def vjp(g: np.ndarray):
         return (-g,)
 
-    return _make(-a.data, (a,), vjp, "neg")
+    def jvp(da: np.ndarray) -> np.ndarray:
+        ...
+
+    return _make(-a.data, (a,), vjp, "neg", jvp)
 
 
 def relu(a: Tensor) -> Tensor:
     def vjp(g: np.ndarray):
         return ((a.data > 0) * g,)
 
-    return _make(np.maximum(0, a.data), (a,), vjp, "relu")
+    def jvp(da: np.ndarray) -> np.ndarray:
+            ...
+
+    return _make(np.maximum(0, a.data), (a,), vjp, "relu", jvp)
 
 
 def sigmoid(a: Tensor) -> Tensor:
@@ -138,7 +168,10 @@ def sigmoid(a: Tensor) -> Tensor:
     def vjp(g: np.ndarray):
         return (s * (1 - s) * g,)
 
-    return _make(s, (a,), vjp, "sigmoid")
+    def jvp(da: np.ndarray) -> np.ndarray:
+            ...
+
+    return _make(s, (a,), vjp, "sigmoid", jvp)
 
 
 def softmax(a: Tensor) -> Tensor:
@@ -150,4 +183,71 @@ def softmax(a: Tensor) -> Tensor:
         # J = diag(p) - p p^T, so J^T g = p * (g - p.g)
         return (p * (g - np.sum(p * g, axis=-1, keepdims=True)),)
 
-    return _make(p, (a,), vjp, "softmax")
+    def jvp(da: np.ndarray) -> np.ndarray:
+            ...
+
+    return _make(p, (a,), vjp, "softmax", jvp)
+
+
+def exp(a: Tensor) -> Tensor:
+    e = np.exp(a.data)
+
+    def vjp(g: np.ndarray):
+        return (g * np.exp(e), )
+
+    def jvp(da: np.ndarray) -> np.ndarray:
+            ...
+    
+    return _make(e, (a,), vjp, "exp", jvp)
+
+
+def log(a: Tensor) -> Tensor:
+    def vjp(g: np.ndarray):
+        return (g / a.data, )
+
+    def jvp(da: np.ndarray) -> np.ndarray:
+            ...
+
+    return _make(np.log(a.data), (a,), vjp, "log", jvp)
+
+
+def log_softmax(a: Tensor) -> Tensor:
+    shift = a.data - np.max(a.data, axis=-1, keepdims=True)
+    p = shift - np.log(np.sum(np.exp(shift), axis=-1, keepdims=True))
+    s = np.exp(p)
+
+    def vjp(g: np.ndarray):
+        return (g - s * np.sum(g, axis=-1, keepdims=True), )
+
+    def jvp(da: np.ndarray) -> np.ndarray:
+            ...
+
+    return _make(p, (a,), vjp, "log_softmax", jvp)
+
+
+def transpose(a: Tensor) -> Tensor:
+    def vjp(g: np.ndarray):
+        return (g.T,)
+
+    def jvp(da: np.ndarray) -> np.ndarray:
+            ...
+
+    return _make(a.data.T, (a,), vjp, "transpose", jvp)
+
+def pow_(a: Tensor, b: float) -> Tensor: #TODO: Edge case with b=0 at a=0
+    def vjp(g: np.ndarray):
+        return (g * b * a.data ** (b - 1),)
+
+    def jvp(da: np.ndarray) -> np.ndarray:
+            ...
+
+    return _make(a.data ** b, (a,), vjp, "pow", jvp)
+
+def abs_(a: Tensor) -> Tensor:
+    def vjp(g: np.ndarray):
+        return (g * np.sign(a.data),)
+
+    def jvp(da: np.ndarray) -> np.ndarray:
+            ...
+
+    return _make(np.abs(a.data), (a,), vjp, "abs", jvp)
