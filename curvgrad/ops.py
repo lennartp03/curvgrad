@@ -93,7 +93,7 @@ def div(a: Tensor, b: Tensor) -> Tensor:
         return (g / b.data, -g * a.data / b.data**2)
 
     def jvp(da: np.ndarray, db: np.ndarray) -> np.ndarray:
-        return da / b.data - a.data / db**2
+        return da / b.data - a.data * db / b.data**2
 
     return _make(a.data / b.data, (a, b), vjp, "div", jvp)
 
@@ -114,7 +114,7 @@ def sum_(a: Tensor, axis=None) -> Tensor:
         return (_restore_axes(g, a.data.shape, axis),)
 
     def jvp(da: np.ndarray) -> np.ndarray:
-        ...
+        return np.asarray(np.sum(da, axis=axis))
 
     return _make(np.sum(a.data, axis=axis), (a,), vjp, "sum", jvp)
 
@@ -127,7 +127,7 @@ def mean_(a: Tensor, axis=None) -> Tensor:
         return (_restore_axes(g, a.data.shape, axis) / n,)
 
     def jvp(da: np.ndarray) -> np.ndarray:
-        ...
+        return np.asarray(np.mean(da, axis=axis))
 
     return _make(out_data, (a,), vjp, "mean", jvp)
 
@@ -137,7 +137,7 @@ def reshape(a: Tensor, shape: tuple[int, ...]) -> Tensor:
         return (g.reshape(a.data.shape),)
 
     def jvp(da: np.ndarray) -> np.ndarray:
-            ...
+            return da.reshape(shape)
 
     return _make(a.data.reshape(shape), (a,), vjp, "reshape", jvp)
 
@@ -147,7 +147,7 @@ def neg(a: Tensor) -> Tensor:
         return (-g,)
 
     def jvp(da: np.ndarray) -> np.ndarray:
-        ...
+        return -da
 
     return _make(-a.data, (a,), vjp, "neg", jvp)
 
@@ -157,7 +157,7 @@ def relu(a: Tensor) -> Tensor:
         return ((a.data > 0) * g,)
 
     def jvp(da: np.ndarray) -> np.ndarray:
-            ...
+            return (a.data > 0) * da
 
     return _make(np.maximum(0, a.data), (a,), vjp, "relu", jvp)
 
@@ -169,7 +169,7 @@ def sigmoid(a: Tensor) -> Tensor:
         return (s * (1 - s) * g,)
 
     def jvp(da: np.ndarray) -> np.ndarray:
-            ...
+            return s * (1 - s) * da
 
     return _make(s, (a,), vjp, "sigmoid", jvp)
 
@@ -184,7 +184,7 @@ def softmax(a: Tensor) -> Tensor:
         return (p * (g - np.sum(p * g, axis=-1, keepdims=True)),)
 
     def jvp(da: np.ndarray) -> np.ndarray:
-            ...
+        return p * (da - np.sum(p * da, axis=-1, keepdims=True))
 
     return _make(p, (a,), vjp, "softmax", jvp)
 
@@ -193,10 +193,10 @@ def exp(a: Tensor) -> Tensor:
     e = np.exp(a.data)
 
     def vjp(g: np.ndarray):
-        return (g * np.exp(e), )
+        return (g * e, )
 
     def jvp(da: np.ndarray) -> np.ndarray:
-            ...
+        return da * e
     
     return _make(e, (a,), vjp, "exp", jvp)
 
@@ -206,7 +206,7 @@ def log(a: Tensor) -> Tensor:
         return (g / a.data, )
 
     def jvp(da: np.ndarray) -> np.ndarray:
-            ...
+        return da / a.data
 
     return _make(np.log(a.data), (a,), vjp, "log", jvp)
 
@@ -220,7 +220,7 @@ def log_softmax(a: Tensor) -> Tensor:
         return (g - s * np.sum(g, axis=-1, keepdims=True), )
 
     def jvp(da: np.ndarray) -> np.ndarray:
-            ...
+        return da - np.sum(s * da, axis=-1, keepdims=True)
 
     return _make(p, (a,), vjp, "log_softmax", jvp)
 
@@ -230,7 +230,7 @@ def transpose(a: Tensor) -> Tensor:
         return (g.T,)
 
     def jvp(da: np.ndarray) -> np.ndarray:
-            ...
+            return da.T
 
     return _make(a.data.T, (a,), vjp, "transpose", jvp)
 
@@ -239,7 +239,7 @@ def pow_(a: Tensor, b: float) -> Tensor: #TODO: Edge case with b=0 at a=0
         return (g * b * a.data ** (b - 1),)
 
     def jvp(da: np.ndarray) -> np.ndarray:
-            ...
+        return  da * b * a.data ** (b - 1)
 
     return _make(a.data ** b, (a,), vjp, "pow", jvp)
 
@@ -248,6 +248,6 @@ def abs_(a: Tensor) -> Tensor:
         return (g * np.sign(a.data),)
 
     def jvp(da: np.ndarray) -> np.ndarray:
-            ...
+        return da * np.sign(a.data)
 
     return _make(np.abs(a.data), (a,), vjp, "abs", jvp)
