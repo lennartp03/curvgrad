@@ -14,7 +14,7 @@
 #                  composing the rules along the graph is autograd.py's job, not the rule's.
 #   self._inputs : the nodes this one was built from, ORDERED so that they line up positionally
 #                  with what _vjp returns (a set would lose both the order and, for x + x, an edge).
-#   self._jvp    : the forward-mode counterpart, still to be filled in per op.
+#   self._jvp    : the forward-mode counterpart.
 #   self._op     : label of the producing op, for printing / dumping the graph.
 #
 # Returned as a static method for all objects of the class is _ensure_tensor, plus the common atomic

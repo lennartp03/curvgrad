@@ -48,7 +48,7 @@ def _unbroadcast(g: np.ndarray, shape: tuple[int, ...]) -> np.ndarray:
 def _topological_order(root: Tensor) -> list[Tensor]:
     """Every node reachable from `root`, ordered so each node appears AFTER all of its inputs."""
     order: list[Tensor] = []
-    visited: set[int] = set()  # keyed on id(), so it does not depend on Tensor.__hash__
+    visited: set[int] = set()  # keyed on id() so it does not depend on Tensor.__hash__
 
     def visit(node: Tensor) -> None:
         if id(node) in visited:
@@ -63,10 +63,11 @@ def _topological_order(root: Tensor) -> list[Tensor]:
 
 
 def vjp(root: Tensor, seed: np.ndarray | None = None) -> dict[Tensor, np.ndarray]:
-    """Reverse-mode sweep. Returns {node: cotangent} without touching any .grad.
+    """Reverse-mode sweep. Returns a dict mapping every node to its cotangent.
 
-    Stateless by design: two calls with different seeds do not interfere, which is what
-    matrix-free curvature-vector products need later (they push many v through one graph).
+    Never touches .grad.
+
+    Stateless by design: two calls with different seeds do not interfere.
     """
     if seed is None:
         if root.shape != ():
@@ -92,3 +93,35 @@ def vjp(root: Tensor, seed: np.ndarray | None = None) -> dict[Tensor, np.ndarray
             cotangents[inp] = c.copy() if previous is None else previous + c
 
     return cotangents
+
+
+def jvp(root: Tensor, tangents: dict[Tensor, np.ndarray]) -> dict[Tensor, np.ndarray]:
+    """ 
+    Forward-mode sweep. Returns a dict mapping every node to its tangent. Read J v at the root.
+
+    The tangents argument seeds leaves only. An unseeded leaf is held fixed and gets a zero
+    tangent. Stateless like vjp. The returned arrays may be views of the seeds because the
+    reshape and transpose rules return views, so treat them as read-only.
+    """
+    order = _topological_order(root)
+
+    leaves = {n for n in order if not n._inputs}
+    seeds: dict[Tensor, np.ndarray] = {}
+    for leaf, v in tangents.items():
+        if leaf not in leaves:
+            raise ValueError("tangents may only seed leaves of the graph rooted at `root`")
+        v = np.asarray(v, dtype=np.float64)
+        if v.shape != leaf.shape:
+            raise ValueError(f"tangent shape {v.shape} does not match leaf shape {leaf.shape}")
+        seeds[leaf] = v
+
+    out: dict[Tensor, np.ndarray] = {}
+    for node in order:
+        if not node._inputs:
+            out[node] = seeds.get(node, np.zeros_like(node.data))
+        else:
+            if node._jvp is None:
+                raise NotImplementedError(f"no JVP rule implemented for op {node._op!r}")
+            out[node] = np.asarray(node._jvp(*(out[inp] for inp in node._inputs)), dtype=np.float64)
+            assert out[node].shape == node.shape, f"{node._op}: tangent {out[node].shape} != {node.shape}"
+    return out
