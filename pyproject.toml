@@ -14,17 +14,23 @@ dependencies = [
     "numpy>=1.26",
 ]
 
-[project.optional-dependencies]
-# Used only in tests/benchmarks — never imported by curvgrad itself.
+# Development tooling only. None of this is imported by curvgrad itself.
+# `uv sync` installs the `dev` group by default.
+[dependency-groups]
 test = [
     "pytest>=8.0",
-    "torch>=2.2",          # gradient-check oracle 
-    "statsmodels>=0.14",   # GLMM reference estimates 
+    "torch>=2.2",       # gradient check oracle
+]
+examples = [
+    "matplotlib>=3.8",
+    "tueplots>=0.2",
+    "ipykernel>=7.4",   # notebook kernel
 ]
 dev = [
-    "curvgrad[test]",
-    "ruff>=0.5",            # lint + format
-    "mypy>=1.10",           # type checking
+    { include-group = "test" },
+    { include-group = "examples" },
+    "ruff>=0.5",        # lint and format
+    "mypy>=1.10",       # type checking
 ]
 
 [build-system]
