@@ -8,7 +8,7 @@
 #
 # A rule is `vjp(g) -> tuple`, one cotangent per input, positionally aligned with `inputs`, and
 # BEFORE un-broadcasting: autograd.vjp does the reduction and the accumulation, so no op here ever
-# touches .grad. That keeps every shape/accumulation concern in exactly one place.
+# accumulates anything. That keeps every shape/accumulation concern in exactly one place.
 #
 # `from __future__ import annotations` makes annotations plain strings so they are not evaluated at
 # import time -- Tensor only has to exist when the function is CALLED, which is why the local import

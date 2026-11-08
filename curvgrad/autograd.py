@@ -63,15 +63,10 @@ def _topological_order(root: Tensor) -> list[Tensor]:
 
 
 def vjp(root: Tensor, seed: np.ndarray | None = None) -> dict[Tensor, np.ndarray]:
-    """Reverse-mode sweep. Returns a dict mapping every node to its cotangent.
-
-    Never touches .grad.
-
-    Stateless by design: two calls with different seeds do not interfere.
-    """
+    """Reverse-mode sweep. Returns the cotangent of every node, stores nothing on the tensors."""
     if seed is None:
         if root.shape != ():
-            raise RuntimeError("backward() on a non-scalar output needs an explicit gradient")
+            raise RuntimeError("vjp on a non-scalar root needs an explicit seed")
         seed = np.ones_like(root.data)
     seed = np.asarray(seed, dtype=np.float64)
     if seed.shape != root.shape:
@@ -96,12 +91,9 @@ def vjp(root: Tensor, seed: np.ndarray | None = None) -> dict[Tensor, np.ndarray
 
 
 def jvp(root: Tensor, tangents: dict[Tensor, np.ndarray]) -> dict[Tensor, np.ndarray]:
-    """ 
-    Forward-mode sweep. Returns a dict mapping every node to its tangent. Read J v at the root.
+    """Forward-mode sweep. Returns the tangent of every node, J v is the one at the root.
 
-    The tangents argument seeds leaves only. An unseeded leaf is held fixed and gets a zero
-    tangent. Stateless like vjp. The returned arrays may be views of the seeds because the
-    reshape and transpose rules return views, so treat them as read-only.
+    Only leaves can be seeded, unseeded leaves get zero tangents. Results may be views of the seeds.
     """
     order = _topological_order(root)
 

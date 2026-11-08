@@ -4,10 +4,9 @@
 # operation (see ops.py), and for each forward pass we store the following.
 #
 # Assume some linear layer y = Wx where W is shape (o, n) and x is (n, d):
-#   self.grad    : dL/d(this tensor), same shape as self.data, accumulated over ALL consumers of
-#                  this node -- so for the node W it is dL/dW, for an intermediate it is dL/d(that
-#                  intermediate). Every node keeps one, not just the leaves, because curvature/
-#                  will want the intermediates.
+#   self.requires_grad : whether autograd.vjp computes a cotangent for this node. Constants such as
+#                  the 3.0 in x * 3.0 do not need one. Gradients are NOT stored on the tensor:
+#                  autograd.vjp returns them as a dict mapping each node to dL/d(node).
 #   self._vjp    : the LOCAL rule of the op that produced this node. It takes g = dL/d(out) and
 #                  returns dL/d(input_i) = g^T (d out / d input_i) for each input, i.e. it applies
 #                  the transposed local Jacobian. It knows ONE op and nothing about the graph --
@@ -29,7 +28,7 @@ from collections.abc import Callable
 
 import numpy as np
 
-from curvgrad import autograd, ops
+from curvgrad import ops
 
 
 class Tensor:
@@ -42,7 +41,6 @@ class Tensor:
 
     def __init__(self, data, requires_grad=False):
         self.data = np.asarray(data, dtype=np.float64)
-        self.grad: np.ndarray | None = None
         self.requires_grad = requires_grad
         self._inputs = ()
         self._vjp = None
@@ -55,19 +53,6 @@ class Tensor:
 
     def __repr__(self):
         return f"Tensor({self.data!r}, op={self._op!r}, requires_grad={self.requires_grad})"
-
-    def backward(self, grad=None):
-        """Seed the reverse sweep and write the result into .grad.
-
-        Thin wrapper only: the algorithm lives in autograd.vjp. `grad` is the seed cotangent --
-        None means "this is a scalar, seed with ones". The explicit seed is what curvature/ needs
-        in order to push arbitrary vectors through the graph.
-        """
-        for node, cotangent in autograd.vjp(self, grad).items():
-            node.grad = cotangent if node.grad is None else node.grad + cotangent
-
-    def zero_grad(self):
-        self.grad = None
 
     @staticmethod
     def _ensure_tensor(x):

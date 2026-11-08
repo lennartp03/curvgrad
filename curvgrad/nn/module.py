@@ -18,11 +18,3 @@ class Module(ABC):
         """Return the learnable leaf Tensors. Their order defines the flat vector layout."""
         return []
 
-    def zero_grad(self) -> None:
-        """Set .grad to None on every parameter. Call before each Tensor.backward.
-
-        backward adds into .grad, so without this the gradients of successive steps would sum.
-        Not needed when gradients are taken with autograd.vjp, which stores nothing on tensors.
-        """
-        for p in self.parameters():
-            p.zero_grad()
