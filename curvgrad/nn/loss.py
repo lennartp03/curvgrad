@@ -4,15 +4,17 @@ from curvgrad.tensor import Tensor
 
 
 def cross_entropy_loss(logits: Tensor, y: np.ndarray) -> Tensor:
-    """Return the softmax cross entropy averaged over the batch. Both inputs have shape N by K."""
+    """Softmax cross entropy, averaged over the batch."""
     return -(logits.log_softmax() * Tensor(y)).sum(axis=-1).mean()
 
 
 def cross_entropy_hvp(logits: np.ndarray, u: np.ndarray) -> np.ndarray:
-    """Return H u where H is the Hessian of cross_entropy_loss with respect to the logits.
+    """Cross entropy Hessian with respect to the logits, applied to u.
 
-    For one sample with probabilities p this is p * u - p * sum(p * u). The loss averages over the
-    batch, so divide by N. Labels do not appear because this Hessian does not depend on them.
-    Both arguments have shape N by K and are plain arrays, since this is curvature and not a graph op.
+    Per sample (diag(p) - p p^T) u / N. Independent of the labels.
     """
-    raise NotImplementedError
+    shift = logits - np.max(logits, axis=-1, keepdims=True)
+    e = np.exp(shift)
+    p = e / np.sum(e, axis=-1, keepdims=True)
+    hu = p * u - p * np.sum(p * u, axis=-1, keepdims=True)
+    return hu / logits.shape[0]

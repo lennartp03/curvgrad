@@ -4,8 +4,9 @@ import numpy as np
 from tueplots import bundles
 
 from curvgrad import autograd
+from curvgrad.curvature.ggn import ggn_matrix
 from curvgrad.nn.layers import Linear
-from curvgrad.nn.loss import cross_entropy_loss
+from curvgrad.nn.loss import cross_entropy_hvp, cross_entropy_loss
 from curvgrad.tensor import Tensor
 
 plt.rcParams.update(bundles.tue_ai_beamer())
@@ -93,3 +94,17 @@ print(f"Train accuracy: {accuracy:.3f}")
 plot_two_moons(lm)
 
 # %%
+out = lm(Tensor(X))
+G = ggn_matrix(out, lm.parameters(), lambda u: cross_entropy_hvp(out.data, u))
+labels = ["W00", "W01", "W10", "W11", "b0", "b1"]
+
+fig, (ax1, ax2) = plt.subplots(1, 2)
+im = ax1.imshow(G, cmap="RdBu_r", vmin=-np.abs(G).max(), vmax=np.abs(G).max())
+ax1.set_xticks(range(6), labels)
+ax1.set_yticks(range(6), labels)
+ax1.set_title("GGN")
+fig.colorbar(im, ax=ax1)
+ax2.bar(range(6), np.clip(np.linalg.eigvalsh(G), 1e-16, None))
+ax2.set_yscale("log")
+ax2.set_title("eigenvalues")
+plt.show()

@@ -2,17 +2,20 @@ from collections.abc import Callable, Sequence
 
 import numpy as np
 
+from curvgrad import autograd
 from curvgrad.tensor import Tensor
 
 
 def flatten(arrays: Sequence[np.ndarray]) -> np.ndarray:
-    """Concatenate the arrays, each raveled in C order, into one 1D vector."""
-    raise NotImplementedError
+    """Concatenate the arrays into one flat vector, each raveled in C order."""
+    return np.concatenate([np.ravel(array) for array in arrays])
 
 
 def unflatten(vec: np.ndarray, like: Sequence[np.ndarray]) -> list[np.ndarray]:
-    """Split vec into arrays with the shapes of like. Inverse of flatten."""
-    raise NotImplementedError
+    """Split a flat vector into arrays shaped like `like`. Inverse of flatten."""
+    ends = np.cumsum([array.size for array in like])
+    pieces = np.split(vec, ends[:-1])
+    return [piece.reshape(array.shape) for piece, array in zip(pieces, like, strict=True)]
 
 
 def ggn_vp(
@@ -21,21 +24,17 @@ def ggn_vp(
     loss_hvp: Callable[[np.ndarray], np.ndarray],
     v: np.ndarray,
 ) -> np.ndarray:
-    """Return G v for the generalized Gauss Newton matrix G = J^T H J.
+    """Matrix-free GGN product G v = J^T H J v.
 
-    The output is the model output node, here the logits, built from the current parameter values.
-    J is the Jacobian of the output with respect to the flat parameter vector. H is the Hessian of
-    the loss with respect to the output and is only available as the product loss_hvp(u).
-
-    Three steps:
-    1. u = J v. Unflatten v, seed autograd.jvp on the leaves in params, read the tangent at output.
-    2. w = H u. Call loss_hvp(u).
-    3. G v = J^T w. Call autograd.vjp on output with w as the seed, then flatten the cotangents of
-       params in the same order. A parameter without a cotangent gets zeros.
-
-    The graph is only read, so it can be reused for many v. Do not change p.data between calls.
+    J is the Jacobian of `output` with respect to the flat parameters. H is the loss Hessian with
+    respect to `output`, available only through `loss_hvp`.
     """
-    raise NotImplementedError
+    v_unf = unflatten(v, [p.data for p in params])
+    Jv = autograd.jvp(output, dict(zip(params, v_unf, strict=True)))[output]  # J v
+    w = loss_hvp(Jv)  # H J v
+    cot = autograd.vjp(output, w)  # J^T H J v, per parameter
+
+    return flatten([cot.get(p, np.zeros_like(p.data)) for p in params])
 
 
 def ggn_matrix(
@@ -43,8 +42,11 @@ def ggn_matrix(
     params: Sequence[Tensor],
     loss_hvp: Callable[[np.ndarray], np.ndarray],
 ) -> np.ndarray:
-    """Return the dense G by applying ggn_vp to each standard basis vector. Column i is G e_i.
-
-    Only for small models, tests and plots.
-    """
-    raise NotImplementedError
+    """Dense G, one ggn_vp per basis vector. Only for small models."""
+    P = sum(p.data.size for p in params)
+    lookup = np.eye(P)
+    columns = []
+    for i in range(P):
+        e = lookup[:, i]
+        columns.append(ggn_vp(output, params, loss_hvp, e))
+    return np.stack(columns, axis=1)

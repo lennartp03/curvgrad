@@ -17,12 +17,6 @@ SHAPE_PAIRS = [
 ]
 
 
-def _grad(t: Tensor) -> np.ndarray:
-    # .grad is None until a gradient arrives
-    assert t.grad is not None
-    return t.grad
-
-
 @pytest.mark.parametrize(("g_shape", "target"), SHAPE_PAIRS)
 def test_unbroadcast_is_adjoint_of_broadcast(g_shape, target):
     # Broadcasting is a linear map B, so un-broadcasting must be its adjoint B^T, and the adjoint
@@ -55,69 +49,64 @@ def test_fan_out_accumulates():
     x = Tensor(2.0, requires_grad=True)
     y = Tensor(3.0, requires_grad=True)
     z = x * y + x
-    z.backward()
+    g = autograd.vjp(z)
     assert z.data == 8.0
-    assert x.grad == 4.0
-    assert y.grad == 2.0
+    assert g[x] == 4.0
+    assert g[y] == 2.0
 
 
 def test_self_edge_is_not_deduplicated():
     # _inputs must be an ordered tuple: a set would collapse (x, x) to one element and drop an edge
     x = Tensor(3.0, requires_grad=True)
-    (x + x).backward()
-    assert x.grad == 2.0
+    assert autograd.vjp(x + x)[x] == 2.0
 
     w = Tensor(3.0, requires_grad=True)
-    (w * w).backward()
-    assert w.grad == 6.0
+    assert autograd.vjp(w * w)[w] == 6.0
 
 
 def test_broadcast_bias_gradient_has_input_shape():
     # the case that blocks every Linear layer: bias (4,) added to activations (3,4)
     a = Tensor(np.ones((3, 4)), requires_grad=True)
     b = Tensor(np.ones(4), requires_grad=True)
-    (a + b).backward(np.ones((3, 4)))
-    assert _grad(b).shape == (4,)
-    np.testing.assert_allclose(_grad(b), 3.0)
-    assert _grad(a).shape == (3, 4)
+    g = autograd.vjp(a + b, np.ones((3, 4)))
+    assert g[b].shape == (4,)
+    np.testing.assert_allclose(g[b], 3.0)
+    assert g[a].shape == (3, 4)
 
 
-def test_backward_twice_accumulates():
-    # correct semantics and what makes zero_grad mean something
+def test_vjp_is_stateless():
+    # two sweeps over one graph with different seeds do not interfere and nothing is stored
     x = Tensor(2.0, requires_grad=True)
     y = Tensor(3.0, requires_grad=True)
-    (x * y).backward()
-    (x * y).backward()
-    assert x.grad == 6.0
-    x.zero_grad()
-    assert x.grad is None
+    z = x * y
+    first = autograd.vjp(z)
+    second = autograd.vjp(z, np.array(2.0))
+    assert first[x] == 3.0
+    assert second[x] == 6.0
+    assert not hasattr(x, "grad")
 
 
-def test_non_scalar_backward_needs_a_seed():
+def test_non_scalar_root_needs_a_seed():
     x = Tensor(np.ones(3), requires_grad=True)
     with pytest.raises(RuntimeError):
-        (x * 2.0).backward()
+        autograd.vjp(x * 2.0)
 
 
 def test_reduction_over_a_non_trailing_axis():
     # sum(axis=1) leaves a (3,) cotangent, which cannot broadcast against (3,4) until the reduced
     # axis is put back 
     a = Tensor(np.arange(12, dtype=float).reshape(3, 4), requires_grad=True)
-    a.sum(axis=1).backward(np.ones(3))
-    np.testing.assert_allclose(_grad(a), np.ones((3, 4)))
+    np.testing.assert_allclose(autograd.vjp(a.sum(axis=1), np.ones(3))[a], np.ones((3, 4)))
 
     m = Tensor(np.arange(12, dtype=float).reshape(3, 4), requires_grad=True)
-    m.mean(axis=1).backward(np.ones(3))
-    np.testing.assert_allclose(_grad(m), np.full((3, 4), 0.25))
+    np.testing.assert_allclose(autograd.vjp(m.mean(axis=1), np.ones(3))[m], np.full((3, 4), 0.25))
 
 
 def test_scalar_operands_are_wrapped():
     x = Tensor(2.0, requires_grad=True)
-    (x * 3.0).backward()
-    assert x.grad == 3.0
+    assert autograd.vjp(x * 3.0)[x] == 3.0
     y = Tensor(2.0, requires_grad=True)
-    (3.0 - y).backward()
-    assert y.grad == -1.0
+    assert autograd.vjp(3.0 - y)[y] == -1.0
 
 
 def test_numpy_does_not_hijack_left_operand():
@@ -133,12 +122,12 @@ def test_softmax_vjp_matches_explicit_jacobian():
     g = rng.standard_normal(5)
 
     a = Tensor(logits, requires_grad=True)
-    a.softmax().backward(g)
+    grads = autograd.vjp(a.softmax(), g)
 
     p = np.exp(logits - logits.max())
     p /= p.sum()
     expected = (np.diag(p) - np.outer(p, p)).T @ g
-    np.testing.assert_allclose(_grad(a), expected, rtol=1e-12)
+    np.testing.assert_allclose(grads[a], expected, rtol=1e-12)
 
 
 def fd_directional(f, xs, vs, h=1e-6):
