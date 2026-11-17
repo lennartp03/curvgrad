@@ -50,3 +50,18 @@ def ggn_matrix(
         e = lookup[:, i]
         columns.append(ggn_vp(output, params, loss_hvp, e))
     return np.stack(columns, axis=1)
+
+
+def jacobian(
+    output: Tensor,
+    params: Sequence[Tensor],
+) -> np.ndarray:
+    """Jacobian of `output` with respect to the flat parameters, one jvp per column. Shape M by K by P."""
+    P = sum(p.data.size for p in params)
+    lookup = np.identity(P)
+    columns = []
+    for i in range(P):
+        e = unflatten(lookup[:, i], [p.data for p in params])
+        columns.append(autograd.jvp(output, dict(zip(params, e, strict=True)))[output])
+
+    return np.stack(columns, axis=-1)

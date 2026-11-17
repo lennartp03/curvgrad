@@ -17,4 +17,3 @@ class Module(ABC):
     def parameters(self) -> list[Tensor]:
         """Return the learnable leaf Tensors. Their order defines the flat vector layout."""
         return []
-

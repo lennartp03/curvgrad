@@ -1,3 +1,6 @@
+from collections.abc import Sequence
+from itertools import pairwise
+
 import numpy as np
 
 from curvgrad.nn.module import Module
@@ -49,3 +52,29 @@ class Linear(Module):
     def parameters(self) -> list[Tensor]:
         """Return W and b in this order."""
         return [self.W, self.b]
+
+
+class MLP(Module):
+    """Linear layers with relu or sigmoid between them and no activation after the last."""
+
+    def __init__(self, sizes: Sequence[int], activation: str = "relu") -> None:
+        super().__init__()
+        if len(sizes) < 2:
+            raise ValueError(f"need at least an input and an output size, got {list(sizes)}")
+        if activation not in ("relu", "sigmoid"):
+            raise ValueError(f"Unknown activation {activation!r}. Choose relu or sigmoid.")
+        self.activation = activation
+        init = "kaiming" if activation == "relu" else "xavier"
+        self.layers = [Linear(a, b, init=init) for a, b in pairwise(sizes)]
+
+    def forward(self, x: Tensor) -> Tensor:
+        """Apply the layers in order, with the activation after every layer but the last."""
+        *hidden, last = self.layers
+        for layer in hidden:
+            h = layer(x)
+            x = h.relu() if self.activation == "relu" else h.sigmoid()
+        return last(x)
+
+    def parameters(self) -> list[Tensor]:
+        """Return W and b of every layer, first layer first."""
+        return [p for layer in self.layers for p in layer.parameters()]
