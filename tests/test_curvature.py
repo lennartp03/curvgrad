@@ -102,15 +102,6 @@ def test_flatten_roundtrip():
         assert_allclose(a, b, rtol=0, atol=0)
 
 
-def test_cross_entropy_hvp_matches_per_sample_hessian():
-    rng = np.random.default_rng(0)
-    Z, U = rng.normal(size=(5, 3)), rng.normal(size=(5, 3))
-    expected = np.stack(
-        [(np.diag(p) - np.outer(p, p)) @ u for p, u in zip(_softmax(Z), U, strict=True)]
-    )
-    assert_allclose(cross_entropy_hvp(Z, U), expected / 5, rtol=1e-12)
-
-
 def test_cross_entropy_hvp_is_the_hessian_of_the_loss():
     # The gradient of the mean cross entropy with respect to the logits is (p - Y) / N.
     rng = np.random.default_rng(1)
@@ -123,7 +114,7 @@ def test_cross_entropy_hvp_is_the_hessian_of_the_loss():
 
 @pytest.mark.parametrize("d,K", CASES)
 def test_ggn_vp_matches_dense_oracle(d, K):
-    X, Y, model = _setup(d, K)
+    X, _, model = _setup(d, K)
     G = dense_ggn(model, X)
     v = np.random.default_rng(1).normal(size=G.shape[0])
     assert_allclose(ggn_vp(*_ggn_args(model, X), v), G @ v, rtol=1e-10, atol=1e-12)

@@ -78,7 +78,7 @@ def vjp(root: Tensor, seed: np.ndarray | None = None) -> dict[Tensor, np.ndarray
     # reverse topological order guarantees a node's cotangent is complete before its rule runs
     for node in reversed(_topological_order(root)):
         g = cotangents.get(node)
-        if g is None or node._vjp is None:  
+        if g is None or node._vjp is None:
             continue
         for inp, contribution in zip(node._inputs, node._vjp(g), strict=True):
             if contribution is None or not inp.requires_grad:
@@ -115,5 +115,7 @@ def jvp(root: Tensor, tangents: dict[Tensor, np.ndarray]) -> dict[Tensor, np.nda
             if node._jvp is None:
                 raise NotImplementedError(f"no JVP rule implemented for op {node._op!r}")
             out[node] = np.asarray(node._jvp(*(out[inp] for inp in node._inputs)), dtype=np.float64)
-            assert out[node].shape == node.shape, f"{node._op}: tangent {out[node].shape} != {node.shape}"
+            assert out[node].shape == node.shape, (
+                f"{node._op}: tangent {out[node].shape} != {node.shape}"
+            )
     return out

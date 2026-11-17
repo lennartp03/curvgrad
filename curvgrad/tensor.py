@@ -130,4 +130,3 @@ class Tensor:
     @property
     def T(self):
         return ops.transpose(self)
-    

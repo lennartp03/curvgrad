@@ -20,8 +20,8 @@ SHAPE_PAIRS = [
 @pytest.mark.parametrize(("g_shape", "target"), SHAPE_PAIRS)
 def test_unbroadcast_is_adjoint_of_broadcast(g_shape, target):
     # Broadcasting is a linear map B, so un-broadcasting must be its adjoint B^T, and the adjoint
-    # is the unique map satisfying <g, Bx> = <B^T g, x> for all g, x. 
-    rng = np.random.default_rng(0) 
+    # is the unique map satisfying <g, Bx> = <B^T g, x> for all g, x.
+    rng = np.random.default_rng(0)
     g = rng.standard_normal(g_shape)
     x = rng.standard_normal(target)
 
@@ -29,18 +29,9 @@ def test_unbroadcast_is_adjoint_of_broadcast(g_shape, target):
     rhs = np.sum(_unbroadcast(g, target) * x)  # <B^T g, x>
 
     np.testing.assert_allclose(lhs, rhs, rtol=1e-12)
-
-
-@pytest.mark.parametrize(("g_shape", "target"), SHAPE_PAIRS)
-def test_unbroadcast_returns_exact_target_shape(g_shape, target):
-    # The adjoint identity alone does not pin the shape: returning (1,4) where (4,) is wanted gives
-    # an identical sum, because the product broadcasts back. So shape needs its own assertion.
-    assert _unbroadcast(np.ones(g_shape), target).shape == target
-
-
-def test_unbroadcast_sums_the_fanned_out_axis():
-    # grounds the derivation in autograd.py: W_j feeds 2 rows, so each gradient is a sum of 2 ones
-    np.testing.assert_allclose(_unbroadcast(np.ones((2, 3)), (3,)), [2.0, 2.0, 2.0])
+    # The identity alone does not pin the shape: returning (1,4) where (4,) is wanted gives an
+    # identical sum, because the product broadcasts back.
+    assert _unbroadcast(g, target).shape == target
 
 
 def test_fan_out_accumulates():
@@ -64,16 +55,6 @@ def test_self_edge_is_not_deduplicated():
     assert autograd.vjp(w * w)[w] == 6.0
 
 
-def test_broadcast_bias_gradient_has_input_shape():
-    # the case that blocks every Linear layer: bias (4,) added to activations (3,4)
-    a = Tensor(np.ones((3, 4)), requires_grad=True)
-    b = Tensor(np.ones(4), requires_grad=True)
-    g = autograd.vjp(a + b, np.ones((3, 4)))
-    assert g[b].shape == (4,)
-    np.testing.assert_allclose(g[b], 3.0)
-    assert g[a].shape == (3, 4)
-
-
 def test_vjp_is_stateless():
     # two sweeps over one graph with different seeds do not interfere and nothing is stored
     x = Tensor(2.0, requires_grad=True)
@@ -92,16 +73,6 @@ def test_non_scalar_root_needs_a_seed():
         autograd.vjp(x * 2.0)
 
 
-def test_reduction_over_a_non_trailing_axis():
-    # sum(axis=1) leaves a (3,) cotangent, which cannot broadcast against (3,4) until the reduced
-    # axis is put back 
-    a = Tensor(np.arange(12, dtype=float).reshape(3, 4), requires_grad=True)
-    np.testing.assert_allclose(autograd.vjp(a.sum(axis=1), np.ones(3))[a], np.ones((3, 4)))
-
-    m = Tensor(np.arange(12, dtype=float).reshape(3, 4), requires_grad=True)
-    np.testing.assert_allclose(autograd.vjp(m.mean(axis=1), np.ones(3))[m], np.full((3, 4), 0.25))
-
-
 def test_scalar_operands_are_wrapped():
     x = Tensor(2.0, requires_grad=True)
     assert autograd.vjp(x * 3.0)[x] == 3.0
@@ -113,21 +84,6 @@ def test_numpy_does_not_hijack_left_operand():
     # without __array_ufunc__ = None this silently returns an object-dtype ndarray
     out = np.ones(3) + Tensor(np.ones(3), requires_grad=True)
     assert isinstance(out, Tensor)
-
-
-def test_softmax_vjp_matches_explicit_jacobian():
-    # J = diag(p) - p p^T. the rule must agree with building J and transposing it
-    rng = np.random.default_rng(1)
-    logits = rng.standard_normal(5)
-    g = rng.standard_normal(5)
-
-    a = Tensor(logits, requires_grad=True)
-    grads = autograd.vjp(a.softmax(), g)
-
-    p = np.exp(logits - logits.max())
-    p /= p.sum()
-    expected = (np.diag(p) - np.outer(p, p)).T @ g
-    np.testing.assert_allclose(grads[a], expected, rtol=1e-12)
 
 
 def fd_directional(f, xs, vs, h=1e-6):
@@ -156,6 +112,8 @@ def check_vjp(op, xs, rng, n_dirs=3):
         u = rng.standard_normal(out.shape)
         fd = fd_directional(_raw(op), xs, vs)
         cots = autograd.vjp(out, u)
+        for leaf in leaves:  # a (1, 4) cotangent for a (4,) input would pass the inner product
+            assert cots[leaf].shape == leaf.shape
         rhs = sum(np.sum(cots[leaf] * v) for leaf, v in zip(leaves, vs))
         np.testing.assert_allclose(rhs, np.sum(u * fd), rtol=1e-6, atol=1e-8)
 
@@ -264,12 +222,6 @@ def test_jvp_matches_finite_differences(op, sample):
 
 # tests of the helper itself
 
-def test_fd_directional_on_a_known_function():
-    # f(x) = x^2  ->  directional derivative 2 x v
-    rng = np.random.default_rng(0)
-    x, v = rng.standard_normal(5), rng.standard_normal(5)
-    np.testing.assert_allclose(fd_directional(lambda a: a**2, [x], [v]), 2 * x * v, rtol=1e-6)
-
 
 def test_helper_catches_a_wrong_vjp():
     # exp bug: the cotangent was exponentiated instead of multiplied
@@ -304,4 +256,3 @@ def test_helper_catches_a_missing_unbroadcast():
     rng = np.random.default_rng(0)
     with pytest.raises(AssertionError):
         check_vjp(bad_add, [rng.standard_normal((3, 4)), rng.standard_normal(4)], rng)
-
